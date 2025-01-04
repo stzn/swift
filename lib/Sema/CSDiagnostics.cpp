@@ -7794,8 +7794,7 @@ bool ArgumentMismatchFailure::diagnoseClosureMismatch() const {
 }
 
 bool ArgumentMismatchFailure::diagnoseKeyPathAsFunctionResultMismatch() const {
-  auto argExpr = getArgExpr();
-  if (!isExpr<KeyPathExpr>(argExpr))
+  if (!getAsExpr<KeyPathExpr>(getAnchor()))
     return false;
 
   auto argType = getFromType();
