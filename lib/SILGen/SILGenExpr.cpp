@@ -49,6 +49,7 @@
 #include "swift/SIL/Consumption.h"
 #include "swift/SIL/DynamicCasts.h"
 #include "swift/SIL/SILArgument.h"
+#include "swift/SIL/SILCloner.h"
 #include "swift/SIL/SILInstruction.h"
 #include "swift/SIL/SILUndef.h"
 #include "swift/SIL/TypeLowering.h"
@@ -6067,12 +6068,77 @@ public:
 };
 } // end anonymous namespace
 
-
 RValue RValueEmitter::visitMakeTemporarilyEscapableExpr(
     MakeTemporarilyEscapableExpr *E, SGFContext C) {
+  auto nonescapingClosureValue = E->getNonescapingClosureValue();
+
+  // Make NonescapingClosureValue async
+  auto declRefDecl =
+      E->getNonescapingClosureValue()->getReferencedDecl().getDecl();
+  DeclRefExpr *declRefExpr;
+  if (auto loadExpr = dyn_cast<LoadExpr>(nonescapingClosureValue)) {
+    declRefExpr = dyn_cast<DeclRefExpr>(loadExpr->getSubExpr());
+  } else {
+    declRefExpr = dyn_cast<DeclRefExpr>(nonescapingClosureValue);
+  }
+  auto declRefDeclIFFnTy =
+      declRefDecl->getInterfaceType()->castTo<AnyFunctionType>();
+  declRefDeclIFFnTy = declRefDeclIFFnTy->withExtInfo(
+      declRefDeclIFFnTy->getExtInfo().withAsync());
+  declRefDecl->setInterfaceType(declRefDeclIFFnTy);
+
+  auto newDeclRefExpr =
+      DeclRefExpr(ConcreteDeclRef(declRefDecl), declRefExpr->getNameLoc(),
+                  declRefExpr->isImplicit());
+  AnyFunctionType *declRefExprFnTy;
+  if (declRefExpr->getType()->is<LValueType>()) {
+    declRefExprFnTy = declRefExpr->getType()
+                          ->castTo<LValueType>()
+                          ->getObjectType()
+                          ->castTo<AnyFunctionType>();
+    auto extInfo = declRefExprFnTy->getExtInfo();
+    if (!extInfo.isAsync())
+      declRefExprFnTy = declRefExprFnTy->withExtInfo(extInfo.withAsync());
+    newDeclRefExpr.setType(LValueType::get(declRefExprFnTy));
+  } else {
+    declRefExprFnTy = declRefExpr->getType()->castTo<AnyFunctionType>();
+    auto extInfo = declRefExprFnTy->getExtInfo();
+    if (!extInfo.isAsync())
+      declRefExprFnTy = declRefExprFnTy->withExtInfo(extInfo.withAsync());
+    newDeclRefExpr.setType(declRefExprFnTy);
+  }
+
+  auto newLoadExpr =
+      LoadExpr(&newDeclRefExpr, nonescapingClosureValue->getType());
+  Expr *newNonescapingClosureValue;
+  if (declRefExpr->getType()->is<LValueType>()) {
+    newNonescapingClosureValue = &newLoadExpr;
+  } else {
+    newNonescapingClosureValue = &newDeclRefExpr;
+  }
+  E->setNonescapingClosureValue(newNonescapingClosureValue);
+
+  // Make body closure parameter async
+  auto bodyClosureExpr =
+      dyn_cast<ClosureExpr>(dyn_cast<CallExpr>(E->getSubExpr())->getFn());
+  auto params = bodyClosureExpr->getParameters();
+  if (params && params->size() > 0) {
+    auto param = params->front();
+    auto paramFnTy = param->getInterfaceType()->castTo<FunctionType>();
+    auto extInfo = paramFnTy->getExtInfo();
+    if (!extInfo.isAsync()) {
+      param->setInterfaceType(
+          paramFnTy->withExtInfo(paramFnTy->getExtInfo().withAsync()));
+      bodyClosureExpr->setParameterList(
+          ParameterList::create(bodyClosureExpr->getASTContext(), {param}));
+      E->setSubExpr(bodyClosureExpr);
+    }
+  }
+
   // Emit the non-escaping function value.
   auto functionValue =
-    visit(E->getNonescapingClosureValue()).getAsSingleValue(SGF, E);
+      visit(E->getNonescapingClosureValue()).getAsSingleValue(SGF, E);
+  functionValue.dump();
 
   auto escapingFnTy = SGF.getLoweredType(E->getOpaqueValue()->getType());
   auto silFnTy = escapingFnTy.castTo<SILFunctionType>();
@@ -6083,7 +6149,6 @@ RValue RValueEmitter::visitMakeTemporarilyEscapableExpr(
     assert(isClosureConsumable == escapingClosure.hasCleanup());
     SILGenFunction::OpaqueValueRAII pushOpaqueValue(SGF, E->getOpaqueValue(),
                                                     escapingClosure);
-
     // Emit the guarded expression.
     return visit(E->getSubExpr(), C);
   };

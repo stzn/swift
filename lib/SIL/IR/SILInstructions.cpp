@@ -2786,10 +2786,12 @@ ThinToThickFunctionInst::create(SILDebugLocation DebugLoc, SILValue Operand,
       DebugLoc, Operand, TypeDependentOperands, Ty, forwardingOwnershipKind);
 }
 
-ConvertFunctionInst *ConvertFunctionInst::create(
-    SILDebugLocation DebugLoc, SILValue Operand, SILType Ty, SILModule &Mod,
-    SILFunction *F,
-    bool WithoutActuallyEscaping, ValueOwnershipKind forwardingOwnershipKind) {
+ConvertFunctionInst *
+ConvertFunctionInst::create(SILDebugLocation DebugLoc, SILValue Operand,
+                            SILType Ty, SILModule &Mod, SILFunction *F,
+                            bool WithoutActuallyEscaping,
+                            ValueOwnershipKind forwardingOwnershipKind) {
+
   SmallVector<SILValue, 8> TypeDependentOperands;
   if (F) {
     assert(&F->getModule() == &Mod);
@@ -2813,6 +2815,7 @@ ConvertFunctionInst *ConvertFunctionInst::create(
     (void)opTI;
     CanSILFunctionType resTI = CFI->getType().castTo<SILFunctionType>();
     (void)resTI;
+
     assert((!F || opTI->isABICompatibleWith(resTI, *F).isCompatible()) &&
            "Can not convert in between ABI incompatible function types");
   }

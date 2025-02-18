@@ -3095,7 +3095,7 @@ CanSILFunctionType swift::buildSILFunctionThunkType(
   }
 
   if (withoutActuallyEscaping)
-    extInfoBuilder = extInfoBuilder.withNoEscape(false);
+    extInfoBuilder = extInfoBuilder.withNoEscape(false).withAsync();
 
   // Does the thunk type involve a local archetype type?
   SmallVector<GenericEnvironment *, 2> capturedEnvs;
