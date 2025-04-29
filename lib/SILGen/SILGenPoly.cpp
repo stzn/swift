@@ -6006,6 +6006,21 @@ SILGenFunction::createWithoutActuallyEscapingClosure(
   auto escapingFnSubstTy = escapingTy.castTo<SILFunctionType>();
   auto noEscapingFnSubstTy = noEscapingFunctionValue.getType()
     .castTo<SILFunctionType>();
+
+  auto escapingExtInfo = escapingFnSubstTy->getExtInfo();
+  if (!escapingExtInfo.isAsync()) {
+    escapingFnSubstTy = adjustFunctionType(
+        escapingFnSubstTy, escapingFnSubstTy->getExtInfo().withAsync(),
+        escapingFnSubstTy->getWitnessMethodConformanceOrInvalid());
+  }
+
+  auto noEscapingExtInfo = noEscapingFnSubstTy->getExtInfo();
+  if (!noEscapingExtInfo.isAsync()) {
+    noEscapingFnSubstTy = adjustFunctionType(
+        noEscapingFnSubstTy, noEscapingFnSubstTy->getExtInfo().withAsync(),
+        noEscapingFnSubstTy->getWitnessMethodConformanceOrInvalid());
+  }
+
   // TODO: maybe this should use a more explicit instruction.
   assert(escapingFnSubstTy->getExtInfo().isEqualTo(
       noEscapingFnSubstTy->getExtInfo().withNoEscape(false),
@@ -6041,8 +6056,9 @@ SILGenFunction::createWithoutActuallyEscapingClosure(
   auto noEscapeValue = noEscapingFunctionValue.copy(*this, loc);
   // Convert away function type substitutions.
   if (noEscapingFnTy != noEscapingFnSubstTy) {
-    noEscapeValue = B.createConvertFunction(loc, noEscapeValue,
-                              SILType::getPrimitiveObjectType(noEscapingFnTy));
+    noEscapeValue = B.createConvertFunction(
+        loc, noEscapeValue, SILType::getPrimitiveObjectType(noEscapingFnTy),
+        true);
   }
 
   // FIXME: implement this
