@@ -1,4 +1,4 @@
-// RUN: %target-swift-emit-silgen -Xllvm -sil-print-types -module-name without_actually_escaping %s | %FileCheck %s
+// RUN: %target-swift-emit-silgen -verify -Xllvm -sil-print-types -module-name without_actually_escaping %s | %FileCheck %s
 
 var escapeHatch: Any = 0
 
@@ -137,6 +137,24 @@ public func withoutActuallyEscapingCFunction(function: (@convention(c) () -> Voi
   withoutActuallyEscaping(function) { f in
     var pointer: UnsafeRawPointer? = nil
     pointer = unsafeBitCast(f, to: UnsafeRawPointer.self)
+    // expected-warning@+4 {{expression implicitly coerced from 'UnsafeRawPointer?' to 'Any'}}
+    // expected-note@+3 {{provide a default value to avoid this warning}}
+    // expected-note@+2 {{force-unwrap the value to avoid this warning}}
+    // expected-note@+1 {{explicitly cast to 'Any' with 'as Any' to silence this warning}}
     print(pointer)
   }
+}
+
+// https://github.com/swiftlang/swift/issues/79947
+func withoutActuallyEscapingIsolatedAny(
+  _ f: @isolated(any) () async -> Void
+) {
+  withoutActuallyEscaping(f) { _ in } // expected-error {{withoutActuallyEscaping is currently unimplemented for '@isolated(any)' function values}}
+}
+
+func withoutActuallyEscapingIsolatedAny2(
+  _ f: @isolated(any) () async -> Void,
+  _ f2: (@isolated(any) () async -> Void) -> Void
+) {
+  withoutActuallyEscaping(f, do: f2) // expected-error {{withoutActuallyEscaping is currently unimplemented for '@isolated(any)' function values}}
 }

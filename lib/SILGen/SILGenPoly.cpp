@@ -5953,7 +5953,8 @@ static CanSILFunctionType buildWithoutActuallyEscapingThunkType(
 }
 
 static void buildWithoutActuallyEscapingThunkBody(SILGenFunction &SGF,
-                                                  CanType dynamicSelfType) {
+                                                  CanType dynamicSelfType,
+                                                  bool hasErasedIsolation) {
   PrettyStackTraceSILFunction stackTrace(
       "emitting withoutActuallyEscaping thunk in", &SGF.F);
 
@@ -5970,6 +5971,19 @@ static void buildWithoutActuallyEscapingThunkBody(SILGenFunction &SGF,
   // recover type metadata.
   if (dynamicSelfType)
     params.pop_back();
+
+  // @isolated(any) is not supported for now.
+  // We need to ignore Optional<any Actor>.
+  if (hasErasedIsolation) {
+    SmallVector<ManagedValue, 8> newParams;
+    for (auto param : params) {
+      if (auto optional = param.getType().getOptionalObjectType())
+        if (optional.isAnyActor())
+          continue;
+      newParams.push_back(param);
+    }
+    params = newParams;
+  }
 
   ManagedValue fnValue = params.pop_back_val();
   auto fnType = fnValue.getType().castTo<SILFunctionType>();
@@ -6031,7 +6045,8 @@ SILGenFunction::createWithoutActuallyEscapingClosure(
     thunk->setWithoutActuallyEscapingThunk();
     thunk->setGenericEnvironment(genericEnv);
     SILGenFunction thunkSGF(SGM, *thunk, FunctionDC);
-    buildWithoutActuallyEscapingThunkBody(thunkSGF, dynamicSelfType);
+    buildWithoutActuallyEscapingThunkBody(thunkSGF, dynamicSelfType,
+                                          escapingFnTy->hasErasedIsolation());
     SGM.emitLazyConformancesForFunction(thunk);
   }
   assert(thunk->isWithoutActuallyEscapingThunk());
